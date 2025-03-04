@@ -154,3 +154,25 @@ placed past the period character at the end.
 @Shofuu - For the entirety of the Spanish (Español) translation and revisions.  
 @alikdb - For the entirety of the Turkish (Türkçe) translation.  
 @Nollasko - For the entirety of the Ukrainian (Українська) translation and revisions.  
+
+# TwitchDropsMiner
+
+Fork of the original TwitchDropsMiner with enhanced functionality.
+
+## New Features
+
+- **Unrestricted Drops Mining**: Watch and accumulate drops without requiring game linking
+- **Delayed Claiming**: Accumulate drops and claim them later after linking the game
+- **Full Compatibility**: Maintains all original features and functionality
+- **Automatic Operation**: Same reliable automatic channel switching and progress tracking
+
+## Additional Benefits
+
+- Watch any drops-enabled stream without restrictions
+- Accumulate progress for multiple games simultaneously
+- Link games at your convenience to claim drops
+- No impact on program stability or performance
+
+## Original Features
+
+// ... existing code ...

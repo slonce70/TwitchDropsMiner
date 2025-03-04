@@ -360,7 +360,8 @@ class DropsCampaign:
 
     @property
     def eligible(self) -> bool:
-        return self.linked or self.has_badge_or_emote
+        # Always return True to allow watching any drops without requiring game linking
+        return True
 
     @cached_property
     def has_badge_or_emote(self) -> bool:
