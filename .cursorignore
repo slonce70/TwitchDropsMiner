@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.spec
+appimage/
+build.bat
+build.sh
+pack.bat
+
+# Icons
+icons/
+
+# Translations
+lang/
+
+# Docs & misc
+manual.txt
+README.md
+LICENSE
+tatus
+*.ico
+*.png
+run_dev.bat
+setup_env.bat
+setup_env.sh
+version.py
+.git/ 

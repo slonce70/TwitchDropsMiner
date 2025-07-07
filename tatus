@@ -1,0 +1,5 @@
+[33mc0b8aab[m[33m ([m[1;31morigin/real_time[m[33m)[m Implement a real time display
+[33m1047a8d[m[33m ([m[1;33mtag: [m[1;33mdev-build[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m Added Romanian translation (#679)
+[33mb46b77d[m Fix inventory view display issues with campaigns having both timed and sub-based drops
+[33m6d80397[m Improve consistency by using campaign eligibility instead of linking status in all places
+[33m0804a75[m Relax 'can_watch' restrictions to allow progressing BADGE campaigns; Also removes game match requirements from 'get_active_drop'
