@@ -23,3 +23,12 @@ settings.json
 /appimage-build
 /*.AppImage
 /*.AppImage.zsync
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Cursor
+.cursorignore
