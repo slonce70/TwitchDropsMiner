@@ -660,11 +660,20 @@ class Twitch:
                         sorted_campaigns.sort(key=lambda c: c.ends_at)
                     elif priority_mode is PriorityMode.LOW_AVBL_FIRST:
                         sorted_campaigns.sort(key=lambda c: c.availability)
-                sorted_campaigns.sort(
-                    key=lambda c: (
-                        priority.index(c.game.name) if c.game.name in priority else MAX_INT
+                    else:
+                        # Only apply priority list sorting if not in ending soonest or low availability mode
+                        sorted_campaigns.sort(
+                            key=lambda c: (
+                                priority.index(c.game.name) if c.game.name in priority else MAX_INT
+                            )
+                        )
+                else:
+                    # Priority only mode - always sort by priority list
+                    sorted_campaigns.sort(
+                        key=lambda c: (
+                            priority.index(c.game.name) if c.game.name in priority else MAX_INT
+                        )
                     )
-                )
                 for campaign in sorted_campaigns:
                     game: Game = campaign.game
                     if (
