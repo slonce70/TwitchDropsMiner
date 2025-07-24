@@ -430,6 +430,8 @@ class Twitch:
         self.inventory: list[DropsCampaign] = []
         self._drops: dict[str, TimedDrop] = {}
         self._mnt_triggers: deque[datetime] = deque()
+        # Campaign cache for light checking
+        self._cached_campaign_ids: set[str] = set()
         # NOTE: GQL is pretty volatile and breaks everything if one runs into their rate limit.
         # Do not modify the default, safe values.
         self._qgl_limiter = RateLimiter(capacity=5, window=1)
@@ -512,6 +514,8 @@ class Twitch:
         self._auth_state.clear()
         self.wanted_games.clear()
         self._mnt_triggers.clear()
+        self._cached_campaign_ids.clear()
+        logger.log(CALL, "Campaign cache cleared during shutdown")
         # wait at least half a second + whatever it takes to complete the closing
         # this allows aiohttp to safely close the session
         await asyncio.sleep(start_time + 0.5 - time())
@@ -946,16 +950,35 @@ class Twitch:
     @task_wrapper(critical=True)
     async def _maintenance_task(self) -> None:
         now = datetime.now(timezone.utc)
-        next_period = now + timedelta(hours=1)
+        next_period = now + timedelta(minutes=30)
+        next_light_check = now + timedelta(minutes=10)
+        logger.log(CALL, f"Maintenance task started: period ends at {next_period.astimezone().strftime('%X')}, first light check at {next_light_check.astimezone().strftime('%X')}")
+        
         while True:
             # exit if there's no need to repeat the loop
             now = datetime.now(timezone.utc)
             if now >= next_period:
                 break
+                
+            # Determine the next trigger (light check, time trigger, or period end)
             next_trigger = next_period
+            
+            # Check for light check trigger
+            if next_light_check <= next_trigger:
+                next_trigger = next_light_check
+                
+            # Check for time triggers (cleanup)
             while self._mnt_triggers and self._mnt_triggers[0] <= next_trigger:
                 next_trigger = self._mnt_triggers.popleft()
-            trigger_type: str = "Reload" if next_trigger == next_period else "Cleanup"
+                
+            # Determine trigger type for logging
+            if next_trigger == next_light_check:
+                trigger_type = "Light Check"
+            elif next_trigger == next_period:
+                trigger_type = "Reload"
+            else:
+                trigger_type = "Cleanup"
+                
             logger.log(
                 CALL,
                 (
@@ -964,14 +987,29 @@ class Twitch:
                 )
             )
             await asyncio.sleep((next_trigger - now).total_seconds())
+            
             # exit after waiting, before the actions
             now = datetime.now(timezone.utc)
             if now >= next_period:
                 break
-            if next_trigger != next_period:
+                
+            # Handle different trigger types
+            if next_trigger == next_light_check:
+                # Light check for new campaigns
+                logger.log(CALL, "Maintenance task performing light check")
+                if await self.check_new_campaigns():
+                    logger.log(CALL, "Light check detected new campaigns, triggering full reload")
+                    self.change_state(State.INVENTORY_FETCH)
+                    break
+                # Schedule next light check
+                next_light_check = now + timedelta(minutes=10)
+                logger.log(CALL, f"Next light check scheduled for: {next_light_check.astimezone().strftime('%X')}")
+            elif next_trigger != next_period:
+                # Time trigger - cleanup
                 logger.log(CALL, "Maintenance task requests channels cleanup")
                 self.change_state(State.CHANNELS_CLEANUP)
-        # this triggers a restart of this task every (up to) 60 minutes
+                
+        # this triggers a restart of this task every (up to) 30 minutes
         logger.log(CALL, "Maintenance task requests a reload")
         self.change_state(State.INVENTORY_FETCH)
 
@@ -1499,10 +1537,62 @@ class Twitch:
         now = datetime.now(timezone.utc)
         while self._mnt_triggers and self._mnt_triggers[0] <= now:
             self._mnt_triggers.popleft()
+        # Update campaign cache for light checking
+        self._update_campaign_cache(available_campaigns)
         # NOTE: maintenance task is restarted at the end of each inventory fetch
         if self._mnt_task is not None and not self._mnt_task.done():
             self._mnt_task.cancel()
         self._mnt_task = asyncio.create_task(self._maintenance_task())
+
+    def _update_campaign_cache(self, available_campaigns: dict[str, JsonType]) -> None:
+        """
+        Update the cached campaign IDs for light checking.
+        
+        Args:
+            available_campaigns: Dictionary of campaign IDs to campaign data
+        """
+        self._cached_campaign_ids = set(available_campaigns.keys())
+        logger.log(CALL, f"Campaign cache updated: {len(self._cached_campaign_ids)} campaigns")
+
+    async def check_new_campaigns(self) -> bool:
+        """
+        Perform a light check for new campaigns by comparing current campaign IDs
+        with the cached ones. Uses only one GQL "Campaigns" request.
+        
+        Returns:
+            True if new campaigns are detected, False otherwise
+        """
+        try:
+            # Fetch current campaigns list (light request)
+            logger.log(CALL, "Light check: Starting GQL Campaigns request")
+            response = await self.gql_request(GQL_OPERATIONS["Campaigns"])
+            logger.log(CALL, "Light check: GQL Campaigns request completed")
+            available_list: list[JsonType] = response["data"]["currentUser"]["dropCampaigns"] or []
+            
+            # Filter only ACTIVE and UPCOMING campaigns (same logic as fetch_inventory)
+            applicable_statuses = ("ACTIVE", "UPCOMING")
+            current_campaign_ids: set[str] = {
+                c["id"] for c in available_list 
+                if c["status"] in applicable_statuses
+            }
+            
+            # Compare with cached IDs
+            new_campaigns = current_campaign_ids - self._cached_campaign_ids
+            
+            # Log detailed statistics
+            logger.log(CALL, f"Light check stats: cached={len(self._cached_campaign_ids)}, current={len(current_campaign_ids)}, new={len(new_campaigns)}")
+            
+            if new_campaigns:
+                logger.log(CALL, f"Light check: {len(new_campaigns)} new campaigns detected")
+                return True
+            else:
+                logger.log(CALL, "Light check: No new campaigns detected")
+                return False
+                
+        except Exception as exc:
+            # If light check fails, log error but don't crash
+            logger.warning(f"Light campaign check failed: {exc}")
+            return False
 
     def get_active_drop(self, channel: Channel | None = None) -> TimedDrop | None:
         if not self.wanted_games:

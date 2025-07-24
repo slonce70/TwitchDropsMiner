@@ -32,3 +32,34 @@ settings.json
 
 # Cursor
 .cursorignore
+
+# Kiro IDE
+.kiro/
+
+# Additional temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+*.patch
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python specific
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+ENV/
+env.bak/
+venv.bak/
