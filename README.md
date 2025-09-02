@@ -23,12 +23,6 @@ Every several seconds, the application pretends to watch a particular stream by 
 - Run it and login/connect the miner to your Twitch account by using the in-app login form.
 - After a successful login, the app should fetch a list of all available campaigns and games you can mine drops for - you can then select and add games of choice to the Priority List available on the Settings tab, and then press on the `Reload` button to start processing. It will fetch a list of all applicable streams it can watch, and start mining right away. You can also manually switch to a different channel as needed.
 - If you wish to keep the miner occupied with mining anything it can, beyond what you've selected via the Priority List, you can use the Priority Mode setting to specify the mining order for the rest of the games.
-
-### Priority Modes:
-
-- **Priority list only**: Only mine games from your priority list, ignoring all other available campaigns.
-- **Ending soonest**: Mine campaigns that are ending soonest first, completely ignoring the priority list order. The priority list still determines which games to include/exclude.
-- **Low availability first**: Mine campaigns with fewer available channels first, while still respecting the priority list order.
 - Make sure to link your Twitch account to game accounts on the [campaigns page](https://www.twitch.tv/drops/campaigns), to enable more games to be mined.
 
 ### Pictures:
@@ -140,6 +134,7 @@ placed past the period character at the end.
 -->
 
 @guihkx - For the CI script, CI maintenance, and everything related to Linux builds.  
+@kWAYTV - For the implementation of the dark mode theme.  
 
 @Bamboozul - For the entirety of the Arabic (العربية) translation.  
 @Suz1e - For the entirety of the Chinese (简体中文) translation and revisions.  
@@ -158,28 +153,21 @@ placed past the period character at the end.
 @Patriot99 - For the Polish (Polski) translation and revisions (co-authored with @DevilXD).  
 @zarigata - For the entirety of the Portuguese (Português) translation.  
 @Sergo1217 - For the entirety of the Russian (Русский) translation.  
+@kilroy98 - For the Russian (Русский) translation corrections and revisions.  
 @Shofuu - For the entirety of the Spanish (Español) translation and revisions.  
 @alikdb - For the entirety of the Turkish (Türkçe) translation.  
 @Nollasko - For the entirety of the Ukrainian (Українська) translation and revisions.  
+@kilroy98 - For the Ukrainian (Українська) translation corrections and revisions.  
 
-# TwitchDropsMiner
+### Priority Modes:
 
-Fork of the original TwitchDropsMiner with enhanced functionality.
+- Priority list only: Only mine games from your priority list, ignoring all other available campaigns.
+- Ending soonest: Mine campaigns that are ending soonest first, completely ignoring the priority list order. The priority list still determines which games to include/exclude.
+- Low availability first: Mine campaigns with fewer available channels first, while still respecting the priority list order.
 
-## New Features
+### Fork Enhancements (this fork):
 
-- **Unrestricted Drops Mining**: Watch and accumulate drops without requiring game linking
-- **Delayed Claiming**: Accumulate drops and claim them later after linking the game
-- **Full Compatibility**: Maintains all original features and functionality
-- **Automatic Operation**: Same reliable automatic channel switching and progress tracking
-
-## Additional Benefits
-
-- Watch any drops-enabled stream without restrictions
-- Accumulate progress for multiple games simultaneously
-- Link games at your convenience to claim drops
-- No impact on program stability or performance
-
-## Original Features
-
-// ... existing code ...
+- Unrestricted Drops Mining: Watch and accumulate drops without requiring game linking.
+- Delayed Claiming: Accumulate drops and claim them later after linking the game.
+- Full Compatibility: Maintains all original features and functionality.
+- Automatic Operation: Same reliable automatic channel switching and progress tracking.

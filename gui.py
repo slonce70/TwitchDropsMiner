@@ -264,6 +264,10 @@ class PaddedListbox(tk.Listbox):
         # because 'config = configure' makes mypy complain
         self.configure(*args, **kwargs)
 
+    def configure_theme(self, *, bg: str, fg: str, sel_bg: str, sel_fg: str):
+        # Apply basic colors for dark/light mode
+        super().config(bg=bg, fg=fg, selectbackground=sel_bg, selectforeground=sel_fg)
+
 
 class MouseOverLabel(ttk.Label):
     def __init__(self, *args, alt_text: str = '', reverse: bool = False, **kwargs) -> None:
@@ -621,6 +625,7 @@ class _ProgressVars(TypedDict):
 
 class CampaignProgress:
     BAR_LENGTH = 420
+    ALMOST_DONE_SECONDS = 10
 
     def __init__(self, manager: GUIManager, master: ttk.Widget):
         self._manager = manager
@@ -685,17 +690,19 @@ class CampaignProgress:
             variable=self._vars["drop"]["progress"],
         ).grid(column=0, row=10, columnspan=2)
         self._drop: TimedDrop | None = None
+        self._seconds: int = 0
         self._timer_task: asyncio.Task[None] | None = None
         self.display(None)
 
-    @staticmethod
-    def _divmod(minutes: int, seconds: int) -> tuple[int, int]:
-        if seconds < 60 and minutes > 0:
+    def _divmod(self, minutes: int) -> tuple[int, int]:
+        if self._seconds < 60 and minutes > 0:
             minutes -= 1
         hours, minutes = divmod(minutes, 60)
         return (hours, minutes)
 
-    def _update_time(self, seconds: int):
+    def _update_time(self, seconds: int | None = None):
+        if seconds is not None:
+            self._seconds = seconds
         drop = self._drop
         if drop is not None:
             drop_minutes = drop.remaining_minutes
@@ -705,23 +712,22 @@ class CampaignProgress:
             campaign_minutes = 0
         drop_vars: _DropVars = self._vars["drop"]
         campaign_vars: _CampaignVars = self._vars["campaign"]
-        dseconds = seconds % 60
-        hours, minutes = self._divmod(drop_minutes, seconds)
+        dseconds = self._seconds % 60
+        hours, minutes = self._divmod(drop_minutes)
         drop_vars["remaining"].set(
             _("gui", "progress", "remaining").format(time=f"{hours:>2}:{minutes:02}:{dseconds:02}")
         )
-        hours, minutes = self._divmod(campaign_minutes, seconds)
+        hours, minutes = self._divmod(campaign_minutes)
         campaign_vars["remaining"].set(
             _("gui", "progress", "remaining").format(time=f"{hours:>2}:{minutes:02}:{dseconds:02}")
         )
 
     async def _timer_loop(self):
-        seconds = 60
-        self._update_time(seconds)
-        while seconds > 0:
+        self._update_time(60)
+        while self._seconds > 0:
             await asyncio.sleep(1)
-            seconds -= 1
-            self._update_time(seconds)
+            self._seconds -= 1
+            self._update_time()
         self._timer_task = None
 
     def start_timer(self):
@@ -739,8 +745,9 @@ class CampaignProgress:
             self._timer_task.cancel()
             self._timer_task = None
 
-    def is_counting(self) -> bool:
-        return self._timer_task is not None
+    def minute_almost_done(self) -> bool:
+        # already or almost done
+        return self._timer_task is None or self._seconds <= self.ALMOST_DONE_SECONDS
 
     def display(self, drop: TimedDrop | None, *, countdown: bool = True, subone: bool = False):
         self._drop = drop
@@ -815,6 +822,16 @@ class ConsoleOutput:
         self._text.insert("end", f"{stamp}: {message}\n")
         self._text.see("end")  # scroll to the newly added line
         self._text.config(state="disabled")
+
+    def configure_theme(self, *, bg: str, fg: str, sel_bg: str, sel_fg: str):
+        # Apply colors to the Tk Text widget used for console output
+        self._text.config(
+            bg=bg,
+            fg=fg,
+            insertbackground=fg,
+            selectbackground=sel_bg,
+            selectforeground=sel_fg,
+        )
 
 
 class _Buttons(TypedDict):
@@ -1288,6 +1305,10 @@ class InventoryOverview:
         self._campaigns: dict[DropsCampaign, CampaignDisplay] = {}
         self._drops: dict[str, ttk.Label] = {}
 
+    def configure_theme(self, *, bg: str):
+        # Canvas background needs manual control
+        self._canvas.configure(bg=bg)
+
     def _update_visibility(self, campaign: DropsCampaign):
         # True if the campaign is supposed to show, False makes it hidden.
         frame = self._campaigns[campaign]["frame"]
@@ -1525,6 +1546,7 @@ class _SettingsVars(TypedDict):
     tray: IntVar
     proxy: StringVar
     autostart: IntVar
+    dark_mode: IntVar
     language: StringVar
     priority_mode: StringVar
     tray_notifications: IntVar
@@ -1533,14 +1555,21 @@ class _SettingsVars(TypedDict):
 class SettingsPanel:
     AUTOSTART_NAME: str = "TwitchDropsMiner"
     AUTOSTART_KEY: str = "HKCU/Software/Microsoft/Windows/CurrentVersion/Run"
-    PRIORITY_MODES: dict[PriorityMode, str] = {
-        PriorityMode.PRIORITY_ONLY: _("gui", "settings", "priority_modes", "priority_only"),
-        PriorityMode.ENDING_SOONEST: _("gui", "settings", "priority_modes", "ending_soonest"),
-        PriorityMode.LOW_AVBL_FIRST: _("gui", "settings", "priority_modes", "low_availability"),
-    }
+
+    @cached_property
+    def PRIORITY_MODES(self) -> dict[PriorityMode, str]:
+        # NOTE: Translation calls have to be deferred here,
+        # to allow changing the language before the settings panel is initialized.
+        return {
+            PriorityMode.PRIORITY_ONLY: _("gui", "settings", "priority_modes", "priority_only"),
+            PriorityMode.ENDING_SOONEST: _("gui", "settings", "priority_modes", "ending_soonest"),
+            PriorityMode.LOW_AVBL_FIRST: _(
+                "gui", "settings", "priority_modes", "low_availability"
+            ),
+        }
 
     def __init__(self, manager: GUIManager, master: ttk.Widget):
-        self._twitch = manager._twitch
+        self._manager = manager
         self._settings: Settings = manager._twitch.settings
         priority_mode = self._settings.priority_mode
         if priority_mode not in self.PRIORITY_MODES:
@@ -1551,6 +1580,7 @@ class SettingsPanel:
             "language": StringVar(master, _.current),
             "proxy": StringVar(master, str(self._settings.proxy)),
             "tray": IntVar(master, self._settings.autostart_tray),
+            "dark_mode": IntVar(master, int(self._settings.dark_mode)),
             "priority_mode": StringVar(master, self.PRIORITY_MODES[priority_mode]),
             "tray_notifications": IntVar(master, self._settings.tray_notifications),
         }
@@ -1605,6 +1635,14 @@ class SettingsPanel:
             checkboxes_frame,
             variable=self._vars["tray_notifications"],
             command=self.update_notifications,
+        ).grid(column=1, row=irow, sticky="w")
+        ttk.Label(
+            checkboxes_frame, text=_("gui", "settings", "general", "dark_mode")
+        ).grid(column=0, row=(irow := irow + 1), sticky="e")
+        ttk.Checkbutton(
+            checkboxes_frame,
+            variable=self._vars["dark_mode"],
+            command=self.update_dark_mode,
         ).grid(column=1, row=irow, sticky="w")
         ttk.Label(
             checkboxes_frame, text=_("gui", "settings", "general", "priority_mode")
@@ -1709,7 +1747,7 @@ class SettingsPanel:
         ttk.Button(
             reload_frame,
             text=_("gui", "settings", "reload"),
-            command=self._twitch.state_change(State.INVENTORY_FETCH),
+            command=self._manager._twitch.state_change(State.INVENTORY_FETCH),
         ).grid(column=1, row=0)
 
         self._vars["autostart"].set(self._query_autostart())
@@ -1717,6 +1755,11 @@ class SettingsPanel:
     def clear_selection(self) -> None:
         self._priority_list.selection_clear(0, "end")
         self._exclude_list.selection_clear(0, "end")
+
+    def update_dark_mode(self) -> None:
+        self._settings.dark_mode = bool(self._vars["dark_mode"].get())
+        self._settings.alter()
+        self._manager.apply_theme(self._settings.dark_mode)
 
     def update_notifications(self) -> None:
         self._settings.tray_notifications = bool(self._vars["tray_notifications"].get())
@@ -2015,7 +2058,6 @@ class GUIManager:
 
         # style adjustements
         self._style = style = ttk.Style(root)
-        default_font = nametofont("TkDefaultFont")
         # theme
         theme = ''
         # theme = style.theme_names()[6]
@@ -2047,17 +2089,23 @@ class GUIManager:
         style.configure("green.TLabel", foreground="green")
         style.configure("yellow.TLabel", foreground="goldenrod")
         style.configure("red.TLabel", foreground="red")
+        # fonts
+        default_font = nametofont("TkDefaultFont")
+        self._fonts: dict[str, Font] = {
+            "default": default_font,
+            "large": default_font.copy(),
+            "monospaced": default_font.copy(),
+            "underlined": default_font.copy(),
+        }
+        self._fonts["large"].config(size=10)
+        self._fonts["underlined"].config(underline=True)
+        self._fonts["monospaced"].config(family="Courier New", size=10)
         # label style with a monospace font
-        monospaced_font = Font(root, family="Courier New", size=10)
-        style.configure("MS.TLabel", font=monospaced_font)
+        style.configure("MS.TLabel", font=self._fonts["monospaced"])
         # button style with a larger font
-        large_font = default_font.copy()
-        large_font.config(size=10)
-        style.configure("Large.TButton", font=large_font)
+        style.configure("Large.TButton", font=self._fonts["large"])
         # label style that mimics links
-        link_font = default_font.copy()
-        link_font.config(underline=True)
-        style.configure("Link.TLabel", font=link_font, foreground="blue")
+        style.configure("Link.TLabel", font=self._fonts["underlined"], foreground="blue")
         # end of style changes
 
         root_frame = ttk.Frame(root, padding=8)
@@ -2123,6 +2171,12 @@ class GUIManager:
             # use old-style window closing protocol for non-windows platforms
             root.protocol("WM_DELETE_WINDOW", self.close)
             root.protocol("WM_DESTROY_WINDOW", self.close)
+        # Save current theme and apply palette after widgets are created
+        try:
+            self._orig_theme_name = self._style.theme_use()
+        except Exception:
+            self._orig_theme_name = ''
+        self.apply_theme(self._twitch.settings.dark_mode)
         # stay hidden in tray if needed, otherwise show the window when everything's ready
         if self._twitch.settings.tray:
             # NOTE: this starts the tray icon thread
@@ -2267,6 +2321,179 @@ class GUIManager:
         # print to our custom output
         self.output.print(message)
 
+    def apply_theme(self, dark: bool) -> None:
+        """
+        Apply dark/light palette to ttk styles and Tk widgets in a minimal, non-invasive way.
+        """
+        # Palette
+        if dark:
+            # Switch to a configurable ttk theme for better color control
+            if self._style.theme_use() != "clam":
+                self._style.theme_use("clam")
+            bg = "#1e1e1e"
+            fg = "#e6e6e6"
+            sel_bg = "#094771"
+            sel_fg = "#ffffff"
+            link = "#4ea3ff"
+            surface = "#252525"
+            header = "#2a2a2a"
+            fieldbg = "#2b2b2b"
+            border = "#3c3c3c"
+            muted = "#b3b3b3"
+            accent = "#0d99ff"
+        else:
+            # Restore original theme if we changed it
+            if getattr(self, "_orig_theme_name", '') and self._style.theme_use() == "clam":
+                self._style.theme_use(self._orig_theme_name)
+            # Use platform defaults but ensure toggling back is readable
+            bg = "#f0f0f0"
+            fg = "#000000"
+            sel_bg = "#cce5ff"
+            sel_fg = "#000000"
+            link = "blue"
+            surface = "#ffffff"
+            header = "#eeeeee"
+            fieldbg = "#ffffff"
+            border = "#cccccc"
+            muted = "#404040"
+            accent = "#0a84ff"
+
+        s = self._style
+        # Base containers and labels
+        s.configure("TFrame", background=bg, foreground=fg)
+        s.configure("TLabel", background=bg, foreground=fg)
+        s.configure("TLabelframe", background=bg, foreground=fg)
+        s.configure("TLabelframe.Label", background=bg, foreground=fg)
+        s.configure("MS.TLabel", background=bg, foreground=fg)
+        s.configure("green.TLabel", background=bg)
+        s.configure("yellow.TLabel", background=bg)
+        s.configure("red.TLabel", background=bg)
+        s.configure("Link.TLabel", font=self._fonts["underlined"], background=bg, foreground=link)
+        # Buttons and checks
+        s.configure("TButton", background=surface, foreground=fg, bordercolor=border)
+        s.configure("Large.TButton", background=surface, foreground=fg, bordercolor=border)
+        s.map(
+            "TButton",
+            background=[("active", header), ("pressed", border)],
+            foreground=[("disabled", muted)],
+        )
+        s.configure(
+            "TCheckbutton",
+            background=bg,
+            foreground=fg,
+            focuscolor=bg,
+            bordercolor=border,
+        )
+        s.map(
+            "TCheckbutton",
+            # Remove hover visuals by mapping active/pressed to the base background
+            background=[
+                ("active", bg),
+                ("pressed", bg),
+            ],
+            foreground=[("disabled", muted)],
+            indicatorcolor=[
+                ("selected", accent if dark else fg),
+                ("!selected", border),
+            ],
+        )
+        # Notebook
+        s.configure("TNotebook", background=bg, bordercolor=border)
+        s.configure("TNotebook.Tab", background=surface, foreground=fg, bordercolor=border)
+        s.map(
+            "TNotebook.Tab",
+            background=[("selected", header), ("active", header)],
+            foreground=[("disabled", muted)],
+        )
+        # Entries/Combos
+        s.configure(
+            "TEntry", fieldbackground=fieldbg, background=fieldbg, foreground=fg, insertcolor=fg
+        )
+        s.configure(
+            "TCombobox", fieldbackground=fieldbg, background=fieldbg, foreground=fg, arrowcolor=fg
+        )
+        # Ensure readability for readonly comboboxes (Language, Priority mode)
+        s.map(
+            "TCombobox",
+            foreground=[("readonly", fg), ("disabled", muted)],
+            fieldbackground=[("readonly", fieldbg)],
+            background=[("readonly", fieldbg)],
+            arrowcolor=[("readonly", fg)],
+        )
+        s.map("TEntry", foreground=[("disabled", muted)])
+        # Treeview
+        s.configure(
+            "Treeview",
+            background=surface,
+            fieldbackground=surface,
+            foreground=fg,
+            bordercolor=border,
+        )
+        s.map(
+            "Treeview",
+            background=[("selected", sel_bg)],
+            foreground=[("selected", sel_fg)],
+        )
+        s.configure("Treeview.Heading", background=header, foreground=fg, bordercolor=border)
+        # Progressbar
+        s.configure("TProgressbar", background=accent, troughcolor=surface)
+        # Scrollbars
+        s.configure(
+            "Vertical.TScrollbar",
+            background=surface,
+            troughcolor=bg,
+            arrowcolor=fg,
+            bordercolor=border,
+        )
+        s.configure(
+            "Horizontal.TScrollbar",
+            background=surface,
+            troughcolor=bg,
+            arrowcolor=fg,
+            bordercolor=border,
+        )
+
+        # Pure Tk widgets
+        # Console text
+        self.output.configure_theme(bg=surface, fg=fg, sel_bg=sel_bg, sel_fg=sel_fg)
+        # Listboxes
+        self.settings._priority_list.configure_theme(
+            bg=surface, fg=fg, sel_bg=sel_bg, sel_fg=sel_fg
+        )
+        self.settings._exclude_list.configure_theme(
+            bg=surface, fg=fg, sel_bg=sel_bg, sel_fg=sel_fg
+        )
+        # Inventory canvas
+        self.inv.configure_theme(bg=bg)
+
+        # Tk option database for selection/popup list readability (affects Tk-backed widgets)
+        # Global selection colors and listbox defaults (covers Combobox dropdown)
+        self._root.option_add("*selectBackground", sel_bg)
+        self._root.option_add("*selectForeground", sel_fg)
+        # Combobox dropdown list (Tk Listbox)
+        for key in (
+            "*TCombobox*Listbox.background",
+            "*TCombobox*Listbox.Background",
+            "*Listbox.background",
+        ):
+            self._root.option_add(key, surface)
+        for key in (
+            "*TCombobox*Listbox.foreground",
+            "*TCombobox*Listbox.Foreground",
+            "*Listbox.foreground",
+        ):
+            self._root.option_add(key, fg)
+        for key in (
+            "*TCombobox*Listbox.selectBackground",
+            "*Listbox.selectBackground",
+        ):
+            self._root.option_add(key, sel_bg)
+        for key in (
+            "*TCombobox*Listbox.selectForeground",
+            "*Listbox.selectForeground",
+        ):
+            self._root.option_add(key, sel_fg)
+
 
 ###################
 # GUI MANAGER END #
@@ -2338,11 +2565,12 @@ if __name__ == "__main__":
         cm = current_minutes
         tm = total_minutes
         ref_stamp = datetime.now(timezone.utc)
-        image_url = (
-            "https://static-cdn.jtvnw.net/twitch-drops-assets-prod/"
-            "BENEFIT-81ab5665-b2f4-4179-96e6-74da5a82da28.jpeg"
+        drop_image_url = (
+            "https://static-cdn.jtvnw.net/twitch-quests-assets/"
+            "REWARD/e0ede26e-b071-47f0-af5f-b80b26fa9fb4.png"
         )
-        benefits = [SimpleNamespace(name=name, image_url=image_url) for name in rewards]
+        campaign_image_url = "https://static-cdn.jtvnw.net/ttv-boxart/515025-120x160.jpg"
+        benefits = [SimpleNamespace(name=name, image_url=drop_image_url) for name in rewards]
         mock = SimpleNamespace(
             id="0",
             campaign=HashNamespace(
@@ -2355,7 +2583,7 @@ if __name__ == "__main__":
                 eligible=False,
                 finished=False,
                 link_url="https://google.com",
-                image_url="https://static-cdn.jtvnw.net/ttv-boxart/460630-285x380.jpg",
+                image_url=campaign_image_url,
                 allowed_channels=[],
                 starts_at=ref_stamp,
                 ends_at=ref_stamp + timedelta(days=7),
@@ -2367,7 +2595,7 @@ if __name__ == "__main__":
                 progress=(cd * tm + cm) / (td * tm),
                 remaining_minutes=(td - cd) * tm - cm,
             ),
-            image_url=image_url,
+            image_url=drop_image_url,
             can_claim=False,
             can_earn=lambda: False,
             is_claimed=False,
@@ -2392,6 +2620,7 @@ if __name__ == "__main__":
                 tray=False,
                 priority=[],
                 proxy=URL(),
+                dark_mode=False,
                 alter=lambda: None,
                 language="English",
                 autostart_tray=False,
@@ -2404,7 +2633,7 @@ if __name__ == "__main__":
         mock.change_state = lambda state: mock.gui.print(f"State change: {state.value}")
         mock.state_change = lambda state: partial(mock.change_state, state)
         mock.request = aiohttp.request
-        # _.set_language("Dansk")
+        # _.set_language("Русский")
         gui = GUIManager(mock)  # type: ignore
         mock.gui = gui
         mock.close = gui.stop
